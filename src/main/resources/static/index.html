@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Race to the Moon</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="bg-grid"></div>
+<main class="layout">
+    <section class="hud-card">
+        <header class="hud-header">
+            <h1>RACE TO THE MOON</h1>
+            <p>Mission Control Feed</p>
+        </header>
+        <canvas id="gameCanvas" width="1000" height="640"></canvas>
+    </section>
+
+    <aside class="side-card">
+        <section class="panel">
+            <h2>Place Bet</h2>
+            <form id="betForm">
+                <label>
+                    Name
+                    <input id="player" maxlength="18" placeholder="Alice" required>
+                </label>
+                <label>
+                    Command
+                    <input id="command" placeholder="!bet 100 at 500km" required>
+                </label>
+                <button type="submit">Lock Target</button>
+                <p id="betMessage"></p>
+            </form>
+        </section>
+
+        <section class="panel" id="statusPanel">
+            <h2>Flight Data</h2>
+            <div class="status-line"><span>Phase</span><strong id="phase">-</strong></div>
+            <div class="status-line"><span>Altitude</span><strong id="altitude">0km</strong></div>
+            <div class="status-line"><span>Speed</span><strong id="speed">0 km/s</strong></div>
+            <div class="status-line"><span>Betting</span><strong id="bettingCountdown">-</strong></div>
+        </section>
+
+        <section class="panel">
+            <h2>Recent Events</h2>
+            <ul id="events"></ul>
+        </section>
+
+        <section class="panel">
+            <h2>Admin Controls</h2>
+            <div class="admin-grid">
+                <button type="button" class="admin-btn" data-admin-action="/api/admin/force-launch">Force Launch</button>
+                <button type="button" class="admin-btn" data-admin-action="/api/admin/new-round">New Round</button>
+                <button type="button" class="admin-btn" data-admin-action="/api/admin/pause">Pause</button>
+                <button type="button" class="admin-btn" data-admin-action="/api/admin/resume">Resume</button>
+                <button type="button" class="admin-btn" data-admin-action="/api/admin/next-moon">Queue Moon</button>
+                <button type="button" class="admin-btn" data-admin-action="/api/admin/next-golden">Queue Golden</button>
+            </div>
+            <p id="adminMessage"></p>
+        </section>
+
+        <section class="panel">
+            <h2>Last Rounds</h2>
+            <ul id="roundHistory"></ul>
+        </section>
+    </aside>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

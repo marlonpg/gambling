@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: race_to_the_moon_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: race_to_the_moon
+      POSTGRES_USER: moon
+      POSTGRES_PASSWORD: moonpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moon -d race_to_the_moon"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:
