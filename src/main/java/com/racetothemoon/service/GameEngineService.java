@@ -66,6 +66,9 @@ public class GameEngineService {
 
     @PostConstruct
     public synchronized void init() {
+        roundId = roundRepository.findTopByOrderByRoundNumberDesc()
+                .map(RoundEntity::getRoundNumber)
+                .orElse(0L);
         startNewRound();
         broadcastSnapshot();
     }

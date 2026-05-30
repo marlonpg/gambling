@@ -28,7 +28,7 @@ public class HistoryController {
     public List<RoundHistoryView> listRounds(@RequestParam(defaultValue = "20") int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
         return roundRepository.findAll().stream()
-                .sorted((a, b) -> Long.compare(b.getRoundNumber(), a.getRoundNumber()))
+            .sorted((a, b) -> Long.compare(b.getId(), a.getId()))
                 .limit(safeLimit)
                 .map(round -> new RoundHistoryView(
                         round.getId(),
