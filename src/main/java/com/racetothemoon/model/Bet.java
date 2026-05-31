@@ -5,6 +5,7 @@ public class Bet {
     private final long amount;
     private final long targetKm;
     private boolean cashedOut;
+    private boolean lost;
     private long payout;
 
     public Bet(String player, long amount, long targetKm) {
@@ -32,6 +33,14 @@ public class Bet {
     public void markCashedOut(long payout) {
         this.cashedOut = true;
         this.payout = payout;
+    }
+
+    public boolean isLost() {
+        return lost;
+    }
+
+    public void markLost() {
+        this.lost = true;
     }
 
     public long getPayout() {

@@ -50,6 +50,7 @@ public class GameEngineService {
     private int flameFrame;
     private boolean moonMission;
     private boolean goldenRocket;
+    private boolean soloModeRound;
     private boolean paused;
     private boolean forceNextMoonMission;
     private boolean forceNextGoldenRocket;
@@ -178,10 +179,15 @@ public class GameEngineService {
     private void launch() {
         phase = GamePhase.FLYING;
         ticksInPhase = 0;
+        soloModeRound = betsByPlayer.size() <= 1;
         speedKmPerSec = 6 + random.nextDouble() * 3;
         crashAltitudeKm = generateCrashAltitude();
         persistRoundState();
-        addEvent("Launch started. Auto-cashout armed.");
+        if (soloModeRound) {
+            addEvent("Launch started. SOLO mode auto-cashout armed.");
+        } else {
+            addEvent("Launch started. COMPETITIVE winner-takes-pool mode armed.");
+        }
     }
 
     private void explode() {
@@ -200,19 +206,12 @@ public class GameEngineService {
             });
         }
 
-        for (Map.Entry<String, Bet> entry : betsByPlayer.entrySet()) {
-            Bet bet = entry.getValue();
-            if (!bet.isCashedOut() && bet.getTargetKm() > explodedAt) {
-                addEvent(bet.getPlayer() + " lost at " + bet.getTargetKm() + "km");
-                Long recordId = betRecordIdByPlayer.get(entry.getKey());
-                if (recordId != null) {
-                    betRepository.findById(recordId).ifPresent(record -> {
-                        record.setLost(true);
-                        betRepository.save(record);
-                    });
-                }
-            }
+        if (soloModeRound) {
+            resolveSoloRoundOnExplode(explodedAt);
+            return;
         }
+
+        resolveCompetitiveRoundOnExplode(explodedAt);
     }
 
     private void startNewRound() {
@@ -226,6 +225,7 @@ public class GameEngineService {
         crashAltitudeKm = 0;
         betsByPlayer.clear();
         betRecordIdByPlayer.clear();
+        soloModeRound = false;
 
         moonMission = forceNextMoonMission || random.nextDouble() < 0.06;
         goldenRocket = forceNextGoldenRocket || random.nextDouble() < 0.015;
@@ -278,6 +278,10 @@ public class GameEngineService {
     }
 
     private void processCashouts() {
+        if (!soloModeRound) {
+            return;
+        }
+
         long currentAltitude = Math.round(altitudeKm);
         for (Map.Entry<String, Bet> entry : betsByPlayer.entrySet()) {
             Bet bet = entry.getValue();
@@ -289,18 +293,113 @@ public class GameEngineService {
                 long payout = Math.round(bet.getAmount() * multiplier);
                 bet.markCashedOut(payout);
                 addEvent("SUCCESS: " + bet.getPlayer() + " reached " + bet.getTargetKm() + "km (" + payout + ")");
-
-                Long recordId = betRecordIdByPlayer.get(entry.getKey());
-                if (recordId != null) {
-                    betRepository.findById(recordId).ifPresent(record -> {
-                        record.setCashedOut(true);
-                        record.setPayout(payout);
-                        record.setCashedOutAt(Instant.now());
-                        betRepository.save(record);
-                    });
-                }
+                markBetRecordAsWinner(entry.getKey(), payout);
             }
         }
+    }
+
+    private void resolveSoloRoundOnExplode(long explodedAt) {
+        for (Map.Entry<String, Bet> entry : betsByPlayer.entrySet()) {
+            Bet bet = entry.getValue();
+            if (!bet.isCashedOut() && bet.getTargetKm() > explodedAt) {
+                bet.markLost();
+                addEvent(bet.getPlayer() + " lost at " + bet.getTargetKm() + "km");
+                markBetRecordAsLost(entry.getKey());
+            }
+        }
+    }
+
+    private void resolveCompetitiveRoundOnExplode(long explodedAt) {
+        List<Map.Entry<String, Bet>> entries = new ArrayList<>(betsByPlayer.entrySet());
+        long poolAmount = entries.stream().mapToLong(e -> e.getValue().getAmount()).sum();
+
+        List<Map.Entry<String, Bet>> eligible = entries.stream()
+                .filter(e -> e.getValue().getTargetKm() <= explodedAt)
+                .toList();
+
+        if (eligible.isEmpty()) {
+            for (Map.Entry<String, Bet> entry : entries) {
+                entry.getValue().markLost();
+                markBetRecordAsLost(entry.getKey());
+            }
+            addEvent("No eligible winner this round. Pool was " + poolAmount);
+            return;
+        }
+
+        long highestSafeTarget = eligible.stream()
+                .mapToLong(e -> e.getValue().getTargetKm())
+                .max()
+                .orElse(0L);
+
+        List<Map.Entry<String, Bet>> contenders = eligible.stream()
+                .filter(e -> e.getValue().getTargetKm() == highestSafeTarget)
+                .sorted((a, b) -> {
+                    int byAmount = Long.compare(b.getValue().getAmount(), a.getValue().getAmount());
+                    if (byAmount != 0) {
+                        return byAmount;
+                    }
+                    return a.getValue().getPlayer().compareToIgnoreCase(b.getValue().getPlayer());
+                })
+                .toList();
+
+        long contenderAmountTotal = contenders.stream().mapToLong(e -> e.getValue().getAmount()).sum();
+        Map<String, Long> payouts = new HashMap<>();
+        long assigned = 0;
+        for (Map.Entry<String, Bet> contender : contenders) {
+            long share = (poolAmount * contender.getValue().getAmount()) / contenderAmountTotal;
+            payouts.put(contender.getKey(), share);
+            assigned += share;
+        }
+
+        long remainder = poolAmount - assigned;
+        for (int i = 0; i < remainder; i++) {
+            String key = contenders.get(i % contenders.size()).getKey();
+            payouts.put(key, payouts.get(key) + 1);
+        }
+
+        for (Map.Entry<String, Bet> entry : entries) {
+            String playerKey = entry.getKey();
+            Bet bet = entry.getValue();
+
+            if (payouts.containsKey(playerKey)) {
+                long payout = payouts.get(playerKey);
+                bet.markCashedOut(payout);
+                markBetRecordAsWinner(playerKey, payout);
+                addEvent("WIN: " + bet.getPlayer() + " at " + highestSafeTarget + "km won " + payout);
+            } else {
+                bet.markLost();
+                markBetRecordAsLost(playerKey);
+            }
+        }
+
+        if (contenders.size() > 1) {
+            addEvent("Tie at " + highestSafeTarget + "km split by bet amount");
+        }
+    }
+
+    private void markBetRecordAsWinner(String playerKey, long payout) {
+        Long recordId = betRecordIdByPlayer.get(playerKey);
+        if (recordId == null) {
+            return;
+        }
+        betRepository.findById(recordId).ifPresent(record -> {
+            record.setCashedOut(true);
+            record.setLost(false);
+            record.setPayout(payout);
+            record.setCashedOutAt(Instant.now());
+            betRepository.save(record);
+        });
+    }
+
+    private void markBetRecordAsLost(String playerKey) {
+        Long recordId = betRecordIdByPlayer.get(playerKey);
+        if (recordId == null) {
+            return;
+        }
+        betRepository.findById(recordId).ifPresent(record -> {
+            record.setLost(true);
+            betRepository.save(record);
+        });
     }
 
     private void persistRoundState() {
@@ -346,7 +445,7 @@ public class GameEngineService {
                 .toList();
 
         List<TopTargetView> markers = sorted.stream()
-                .filter(b -> !b.isCashedOut())
+            .filter(b -> !b.isCashedOut() && !b.isLost())
                 .map(b -> new TopTargetView(b.getPlayer(), b.getTargetKm(), b.getAmount()))
                 .toList();
 
